@@ -1,5 +1,6 @@
 import re
 import datetime
+import directions
 from pytrie import SortedStringTrie as Trie
 
 numeros = {
@@ -39,8 +40,8 @@ numeros = {
   'setenta': 70,
   'ochenta': 80,
   'noventa': 90,
-  'media': 30 ,
-  'cuarto': 15,
+  # 'media': 30 ,
+  # 'cuarto': 15,
   'do': 2,
   'tre': 3,
   'quin': 5,
@@ -78,6 +79,13 @@ multiplicadores = Trie({
 })
 
 momento_del_dia = Trie({ 'de la noche': 'pm', 'de la mañana': 'am', 'del mediodia': 'pm', 'de la tarde': 'pm' })
+
+time_of_day_to_sum = {
+  'noche': 12,
+  'tarde': 12,
+  'mañana': 0,
+  'madrugada': 0,
+}
 
 def replace_all_numbers(string):
   index = 0
@@ -187,11 +195,82 @@ def get_time(string):
 def get_addresses(string):
   possibles = []
   # '33 orientales al 200' o '33 orientales 200'
+  # TODO : remover espacion en deletreo de numeros
   specific = re.match(r'^((?:[0-9]* )?(?:(?!al |y )[a-z]+ )+)(?:al )?([0-9]+)(?:$| )', string)
   if specific:
-    possibles.append(specific.group(1) + specific.group(2))
+    possibles.append({ 'match': specific.group(1) + specific.group(2), 'original': [specific.group(1), specific.group(2)]})
   # '33 orientales y 9 de julio'
   intersection = re.match(r'^((?:[0-9]* )?(?:(?!al |y )[a-z]+ )+)(?:y)((?: [0-9]*)?(?:(?! al| y) [a-z]+)+)(?: [0-9]|$| y|)', string)
   if intersection:
-    possibles.append('{}y {}'.format(intersection.group(1), intersection.group(2)))
+    possibles.append({ 'match': '{}y {}'.format(intersection.group(1), intersection.group(2)), 'original': [intersection.group(1), intersection.group(2)] })
   return possibles
+
+def get_from(string):
+  possible_from = re.findall(r'\b(?:desde |de )((?:(?!a |en |tipo |las |hasta |como |si |cuanto )\w+ )+)(?:a |en |tipo |las |hasta |como |si |cuanto |$)', string)
+  potential_from = []
+  for possible in possible_from:
+    addresses = get_addresses(possible)
+    potential_from.append(addresses)
+  # Flatten list
+  potential_from = [item for sublist in potential_from for item in sublist]
+  real_addreses = directions.addresses_nd([i['match'] for i in potential_from])
+  potential_from = [{'match': z[1], 'original': z[0]['original']} for z in zip(potential_from, real_addreses) if z[1] != None]
+  return None if len(potential_from) == 0 else max(potential_from, key= lambda x: len(x['match']['text']))
+
+def get_to(string):
+  possible_to = re.findall(r'\b(?:hasta |a |en )((?:(?!a |en |tipo |las |desde |como |si |cuanto )\w+ )+)(?:a |en |tipo |las |desde |como |si |cuanto |$)', string)
+  potential_to = []
+  for possible in possible_to:
+    addresses = get_addresses(possible)
+    potential_to.append(addresses)
+  # Flatten list
+  potential_to = [item for sublist in potential_to for item in sublist]
+  real_addreses = directions.addresses_nd([i['match'] for i in potential_to])
+  potential_to = [{'match': z[1], 'original': z[0]['original']} for z in zip(potential_to, real_addreses) if z[1] != None]
+  return None if len(potential_to) == 0 else max(potential_to, key= lambda x: len(x['match']['text']))
+
+def get_hour(string):
+  now = datetime.datetime.now()
+  times = re.search(r'\b(([0-9][0-9]?\b)(?: y\b)?( [0-9][0-9]?\b| (?:media|cuarto)\b)?(?: (?:del|de la|de el)? (noche|tarde|madrugada|mañana)\b)?)', string)
+  if times:
+    hour = int(times.group(2))
+    minutes = times.group(3)
+    if minutes == None:
+      minutes = 0
+    if minutes == ' media':
+      minutes = 30
+    if minutes == ' cuarto':
+      minutes = 15
+    minutes = int(minutes)
+    if times.group(4):
+      hour += time_of_day_to_sum[times.group(4)]
+    return now.replace(hour=hour, minute=minutes, second=0)
+  duration = re.search(r'\b([0-9][0-9]?) horas?(?: y)?(?: ([0-9][0-9]|(?:media|cuarto)?)(?: minutos?)?)?\b', string)
+  if duration:
+    hours = int(duration.group(1))
+    minutes = duration.group(2)
+    if minutes == None:
+      minutes = 0
+    if minutes == ' media':
+      minutes = 30
+    if minutes == ' cuarto':
+      minutes = 15
+    minutes = int(minutes)
+    return now + datetime.timedelta(hours=hours, minutes=minutes)
+  duration = re.search(r'\b([0-9][0-9]?) minutos?\b', string)
+  if duration:
+    minutes = int(duration.group(1))
+    return now + datetime.timedelta(minutes=minutes)
+  duration = re.search(r'\bmedia hora\b', string)
+  if duration:
+    return now + datetime.timedelta(minutes=30)
+  moment = re.search(r'\b(mediodia|medianoche)\b', string)
+  if moment:
+    if moment.group(1) == 'mediodia':
+      hour = 12
+    else:
+      hour = 00
+    return now.replace(hour=hour, second=0)
+  return None
+
+

@@ -2,7 +2,8 @@ import requests
 import grequests
 import googlemaps
 import bisect
-from datetime import datetime
+import time
+import datetime
 from usig_normalizador_amba import NormalizadorAMBA
 import os.path
 import pickle
@@ -13,9 +14,29 @@ if os.path.isfile('nd.pkl'):
 else:
   nd = NormalizadorAMBA(include_list=['caba'])
 
+DEFAULT_FROM = { 'parsed': 'Facultad de Ciencias Exactas y Naturales - UBA, Av. Int. Cantilo, Buenos Aires, Argentina', 'text': 'ciudad universitaria' }
+
 gmaps = googlemaps.Client(key='AIzaSyDSJHXfqUJUSSlv5mt1Gx6fIwlTgWrkzgg')
 minutes_interval = { 'bounds': [6, 13, 17, 23, 27, 33, 37, 43, 47, 53, 59], 'names': ['5', '10', 'cuarto', '20', '25', 'media', '35', '40', '45', '50', '55'] }
 translate = { 'day': 'dia', 'hour': 'hora', 'min': 'minuto'}
+get_travel_by = {
+  'transit': 'transit',
+  'driving': 'driving',
+  'walking': 'walking',
+  'bicycling': 'bicycling',
+  'bondi': 'transit',
+  'manejando': 'driving',
+  'auto': 'driving',
+  'caminando': 'walking',
+  'patin': 'walking',
+  'tren': 'transit',
+  'subte': 'transit',
+  'colectivo': 'transit',
+  'moto': 'driving',
+  'carro': 'driving',
+  'pie': 'walking',
+  'bici': 'bicycling'
+}
 
 def addresses_url(strings):
   urls = []
@@ -27,7 +48,7 @@ def addresses_url(strings):
   for s, r in zip(strings, rs):
     possibilities = r.json()['direccionesNormalizadas']
     if len(possibilities) == 0:
-      continue
+      guesses.append(None)
     usig_address = possibilities[0]
     res = { 'street_code': usig_address['cod_calle'], 'coordinates': usig_address['coordenadas'] }
     if usig_address['cod_calle_cruce']:
@@ -44,7 +65,7 @@ def addresses_nd(strings):
   for s in strings:
     possibilities = nd.normalizar(s)
     if len(possibilities) == 0:
-      continue
+      guesses.append(None)
     usig_address = possibilities[0]
     res = { 'street_code': usig_address.calle.codigo, 'parsed': usig_address.toString() }
     if usig_address.cruce:
@@ -76,6 +97,7 @@ def travel_time(ffrom, to, by='transit', departure_at=None, arrival_at=None):
   elif departure_at:
     travel_params['departure_time'] = departure_at
   travel_params['mode'] = by
+  print(travel_params)
   directions_result = gmaps.directions(ffrom, to, **travel_params)
   return directions_result
 
@@ -93,7 +115,10 @@ def pretty_time(time_string):
 def pretty_minutes(minutes):
   return minutes_interval['names'][bisect.bisect_left(minutes_interval['bounds'], int(minutes))]
 
-def travel_info(ffrom, to, by='transit', departure_at=None, arrival_at=None):
+def travel_info(ffrom, to, by='bondi', departure_at=None, arrival_at=None):
+  travel_by = get_travel_by[by]
+  if ffrom == None:
+    ffrom = DEFAULT_FROM
   if ffrom.get('coordinates', None) == None:
     from_address = ffrom['parsed']
     to_address = to['parsed']
@@ -103,19 +128,27 @@ def travel_info(ffrom, to, by='transit', departure_at=None, arrival_at=None):
   routes = travel_time(
                         from_address,
                         to_address,
-                        by='transit',
+                        by=travel_by,
                         departure_at=departure_at,
                         arrival_at=arrival_at
                       )
   if len(routes) == 0:
     return None
-  route = routes[0]
+  route = routes[0]['legs'][0]
   info = {}
   # info['to_barrio'] = barrio(requested_address['coordinates']['x'], requested_address['coordinates']['y'])
   info['from'] = ffrom['text']
   info['to'] = to['text']
-  info['duration'] = pretty_time(route['legs'][0]['duration']['text'])
-  info['arrival_time'] = route['legs'][0]['arrival_time']['value']
-  info['departure_time'] = route['legs'][0]['departure_time']['value']
-  info['distance'] = route['legs'][0]['distance']['text']
+  info['duration'] = pretty_time(route['duration']['text'])
+  if departure_at:
+    info['arrival_time'] = departure_at + datetime.timedelta(seconds=route['duration']['value'])
+    info['departure_time'] = departure_at
+  elif arrival_at:
+    info['departure_time'] = arrival_at - datetime.timedelta(seconds=route['duration']['value'])
+    info['arrival_time'] = arrival_at
+  else:
+    info['arrival_time'] = datetime.datetime.now() + datetime.timedelta(seconds=route['duration']['value'])
+    info['departure_time'] = datetime.datetime.now()
+  info['distance'] = route['distance']['text']
+  info['travel_by'] = travel_by
   return info

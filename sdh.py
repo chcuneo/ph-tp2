@@ -1,6 +1,7 @@
 import re
 import sys
 import parser
+import datetime
 import directions
 from TTS_and_STT import speech_to_text, text_to_speech
 
@@ -8,7 +9,8 @@ from TTS_and_STT import speech_to_text, text_to_speech
 #   print('usage sdh <file>')
 #   exit(1)
 
-arrival_time = departure_time = to = ffrom = travel_by = None
+arrival_time = departure_time = to = ffrom = None
+
 spoken_text = sys.argv[1]
 # Paso a minuscula
 spoken_text = spoken_text.lower()
@@ -17,43 +19,52 @@ spoken_text = spoken_text.lower()
 spoken_text = parser.replace_all_numbers(spoken_text)
 print(spoken_text)
 # ir a <dire> | estar en <dire> | esquina de <dire> | a las
-possible_from = re.findall(r'(?:desde |de )((?:(?!a |en |tipo |las |hasta |como |si )\w+ )+)(?:a |en |tipo |las |hasta |como |si |$)', spoken_text)
-possible_to = re.findall(r'(?:hasta |a |en )((?:(?!a |en |tipo |las |desde |como |si )\w+ )+)(?:a |en |tipo |las |desde |como |si |$)', spoken_text)
 
-print(possible_from)
-print(possible_to)
+ffrom = parser.get_from(spoken_text)
+to = parser.get_to(spoken_text)
 
-potential_from = []
-for possible in possible_from:
-  addresses = parser.get_addresses(possible)
-  potential_from.append(addresses)
-# Flatten list
-potential_from = [item for sublist in potential_from for item in sublist]
+# Remove matched addreses to have a clean text to continue
+addreses_parts = []
+if ffrom:
+  for part in ffrom['original']:
+    addreses_parts.append(part)
+if to:
+  for part in to['original']:
+    addreses_parts.append(part)
 
-potential_to = []
-for possible in possible_to:
-  addresses = parser.get_addresses(possible)
-  potential_to.append(addresses)
-# Flatten list
-potential_to = [item for sublist in potential_to for item in sublist]
+for part in addreses_parts:
+  spoken_text = spoken_text.replace(part,' ')
 
-potential_from = directions.addresses_nd(potential_from)
-potential_to = directions.addresses_nd(potential_to)
+# Get way of travel
+travel_by = 'transit'
+define_travel_by = re.search(r'\b(bondi|manejando|auto|caminando|patin|tren|subte|colectivo|moto|carro|pie)\b', spoken_text)
+if define_travel_by:
+  travel_by = define_travel_by.group(1)
 
-ffrom = None if len(potential_from) == 0 else max(potential_from, key= lambda x: len(x['text']))
-to = None if len(potential_to) == 0 else max(potential_to, key= lambda x: len(x['text']))
+# Get flags to know if speecher is requesting arrival time, departure time, distance, and duration
+define_arrival_time = re.search(r'\b(a que hora tengo|a que hora salgo|cuando tengo|cuando salgo)\b', spoken_text)
+define_departure_time = re.search(r'\b(si salgo|si me voy|saliendo)\b', spoken_text)
+get_distance = re.search(r'\b(lejos|distancia)\b', spoken_text)
+get_duration = re.search(r'\b(tardo|en cuanto)\b', spoken_text)
 
-info = directions.travel_info(ffrom, to)
+hour = parser.get_hour(spoken_text)
+if hour and hour < datetime.datetime.now():
+  hour = hour + datetime.timedelta(days=1)
+
+travel_params = {
+  'by': travel_by,
+#  'departure_at': ,
+#  'arrival_at':
+}
+
+if define_departure_time and hour:
+  travel_params['departure_at'] = hour
+elif define_arrival_time and hour:
+  travel_params['arrival_at'] = hour
+
+from_address = None if ffrom == None else ffrom['match']
+to_address = to['match']
+
+info = directions.travel_info(from_address, to_address, **travel_params)
 
 print(info)
-
-define_arrival_time = re.match(r'a que hora tengo|a que hora salgo|cuando tengo|cuando salgo', spoken_text)
-if define_arrival_time:
-  match = re.match(r'(?:a las|tipo|a la) (.*)^', spoken_text)
-  if match:
-    arrival_time = parser.get_time(match.group(1))
-
-define_departure_time = re.match(r'(?:si salgo|si me voy|saliendo) (?: a las|tipo) (.*)^', spoken_text)
-if define_departure_time:
-  departure_time = parser.get_time(define_departure_time.group(1))
-
