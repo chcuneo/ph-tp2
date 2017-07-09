@@ -196,7 +196,7 @@ def get_addresses(string):
   possibles = []
   # '33 orientales al 200' o '33 orientales 200'
   # TODO : remover espacion en deletreo de numeros
-  specific = re.match(r'^((?:[0-9]* )?(?:(?!al |y )[a-z]+ )+)(?:al )?([0-9]+)(?:$| )', string)
+  specific = re.match(r'^((?:[0-9]* )?(?:(?!al |y )[a-z]+ )+)(?:al )?((?:[0-9]+ )+)(?:$| )', string)
   if specific:
     possibles.append({ 'match': specific.group(1) + specific.group(2), 'original': [specific.group(1), specific.group(2)]})
   # '33 orientales y 9 de julio'
@@ -206,7 +206,7 @@ def get_addresses(string):
   return possibles
 
 def get_from(string):
-  possible_from = re.findall(r'\b(?:desde |de )((?:(?!a |en |tipo |las |hasta |como |si |cuanto )\w+ )+)(?:a |en |tipo |las |hasta |como |si |cuanto |$)', string)
+  possible_from = re.findall(r'\b(?:desde |de )((?:(?!a |en |tipo |las |hasta |como |si |cuanto )\w+ )+)(?=a |en |tipo |las |hasta |como |si |cuanto |$)', string)
   potential_from = []
   for possible in possible_from:
     addresses = get_addresses(possible)
@@ -218,7 +218,7 @@ def get_from(string):
   return None if len(potential_from) == 0 else max(potential_from, key= lambda x: len(x['match']['text']))
 
 def get_to(string):
-  possible_to = re.findall(r'\b(?:hasta |a |en )((?:(?!a |en |tipo |las |desde |como |si |cuanto )\w+ )+)(?:a |en |tipo |las |desde |como |si |cuanto |$)', string)
+  possible_to = re.findall(r'\b(?:hasta |a |en )((?:(?!a |en |tipo |las |desde |como |si |cuanto )\w+ )+)(?=a |en |tipo |las |desde |como |si |cuanto |$)', string)
   potential_to = []
   for possible in possible_to:
     addresses = get_addresses(possible)
@@ -244,7 +244,11 @@ def get_hour(string):
     minutes = int(minutes)
     if times.group(4):
       hour += time_of_day_to_sum[times.group(4)]
-    return now.replace(hour=hour, minute=minutes, second=0)
+    time = now.replace(hour=hour, minute=minutes, second=0)
+    if times.group(4) == None:
+      if now.hour >= 12 and now.hour - 12 <= hour:
+        time = time + datetime.timedelta(hours=12)
+    return time
   duration = re.search(r'\b([0-9][0-9]?) horas?(?: y)?(?: ([0-9][0-9]|(?:media|cuarto)?)(?: minutos?)?)?\b', string)
   if duration:
     hours = int(duration.group(1))

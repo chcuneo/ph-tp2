@@ -2,6 +2,7 @@ import requests
 import grequests
 import googlemaps
 import bisect
+import re
 import time
 import datetime
 from usig_normalizador_amba import NormalizadorAMBA
@@ -41,7 +42,7 @@ get_travel_by = {
 def addresses_url(strings):
   urls = []
   for string in strings:
-    urls.append('http://servicios.usig.buenosaires.gob.ar/normalizar/?direccion={}, caba'.format(string))
+    urls.append('http://servicios.usig.buenosaires.gob.ar/normalizar/?direccion={}, caba'.format(re.sub(r'(\d)\s+(?=\d)', r'\1', string)))
   rs = (grequests.get(u) for u in urls)
   rs = grequests.map(rs)
   guesses = []
@@ -49,6 +50,7 @@ def addresses_url(strings):
     possibilities = r.json()['direccionesNormalizadas']
     if len(possibilities) == 0:
       guesses.append(None)
+      continue
     usig_address = possibilities[0]
     res = { 'street_code': usig_address['cod_calle'], 'coordinates': usig_address['coordenadas'] }
     if usig_address['cod_calle_cruce']:
@@ -56,16 +58,17 @@ def addresses_url(strings):
       res['text'] = '{} y {}'.format(pretty_street(usig_address['nombre_calle']), pretty_street(usig_address['nombre_calle_cruce']))
     else:
       res['number'] = usig_address['altura']
-      res['text'] = '{} al {}'.format(pretty_street(usig_address['nombre_calle']), pretty_number(res['number']))
+      res['text'] = '{} {}'.format(pretty_street(usig_address['nombre_calle']), res['number'])
     guesses.append(res)
   return guesses
 
 def addresses_nd(strings):
   guesses = []
   for s in strings:
-    possibilities = nd.normalizar(s)
+    possibilities = nd.normalizar(re.sub(r'(\d)\s+(?=\d)', r'\1', s))
     if len(possibilities) == 0:
       guesses.append(None)
+      continue
     usig_address = possibilities[0]
     res = { 'street_code': usig_address.calle.codigo, 'parsed': usig_address.toString() }
     if usig_address.cruce:
@@ -73,7 +76,7 @@ def addresses_nd(strings):
       res['text'] = '{} y {}'.format(pretty_street(usig_address.calle.nombre), pretty_street(usig_address.cruce.nombre))
     else:
       res['number'] = usig_address.altura
-      res['text'] = '{} al {}'.format(pretty_street(usig_address.calle.nombre), pretty_number(usig_address.altura))
+      res['text'] = '{} {}'.format(pretty_street(usig_address.calle.nombre), usig_address.altura)
     guesses.append(res)
   return guesses
 
@@ -97,11 +100,10 @@ def travel_time(ffrom, to, by='transit', departure_at=None, arrival_at=None):
   elif departure_at:
     travel_params['departure_time'] = departure_at
   travel_params['mode'] = by
-  print(travel_params)
   directions_result = gmaps.directions(ffrom, to, **travel_params)
   return directions_result
 
-def pretty_time(time_string):
+def pretty_duration(time_string):
   for k, v in translate.items():
     time_string = time_string.replace(k, v)
   parts = time_string.split(' ')
@@ -114,6 +116,28 @@ def pretty_time(time_string):
 
 def pretty_minutes(minutes):
   return minutes_interval['names'][bisect.bisect_left(minutes_interval['bounds'], int(minutes))]
+
+def pretty_time(time):
+  now = datetime.datetime.now()
+  hour = time.hour
+  if time.hour > 12:
+    hour -= 12
+  if time.hour > 19:
+    time_of_day = 'de la noche'
+  elif time.hour > 12:
+    time_of_day = 'de la tarde'
+  else:
+    time_of_day = 'de la mañana'
+  minutes = pretty_minutes(time.minute)
+  output = []
+  output.append(str(hour))
+  if minutes == 'media' or minutes == 'cuarto':
+    output.append('y {}'.format(minutes))
+  elif time.minute != 0:
+    output.append(str(minutes))
+  if now.day != time.day or (now.hour < 12 and now.hour < time.hour):
+    output.append(time_of_day)
+  return ' '.join(output)
 
 def travel_info(ffrom, to, by='bondi', departure_at=None, arrival_at=None):
   travel_by = get_travel_by[by]
@@ -139,7 +163,7 @@ def travel_info(ffrom, to, by='bondi', departure_at=None, arrival_at=None):
   # info['to_barrio'] = barrio(requested_address['coordinates']['x'], requested_address['coordinates']['y'])
   info['from'] = ffrom['text']
   info['to'] = to['text']
-  info['duration'] = pretty_time(route['duration']['text'])
+  info['duration'] = pretty_duration(route['duration']['text'])
   if departure_at:
     info['arrival_time'] = departure_at + datetime.timedelta(seconds=route['duration']['value'])
     info['departure_time'] = departure_at
