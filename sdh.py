@@ -4,13 +4,12 @@ import sys
 import parser
 import directions
 import subprocess
-from TTS_and_STT import speech_to_text, text_to_speech
+from TTS_and_STT import speech_to_text_google, speech_to_text, text_to_speech
 import random
 
 def parse(spoken_text):
   arrival_time = departure_time = to = ffrom = None
 
-  spoken_text = sys.argv[1]
   # Paso a minuscula
   spoken_text = spoken_text.lower() + ' '
 
@@ -125,16 +124,16 @@ def parse(spoken_text):
   return output
 
 def infinite_parse():
-  while true:
+  while True:
     input("Press Enter to start recording...")
-    p = subprocess.Popen(['sox', '-d', 'speech.wav'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    p = subprocess.Popen(['sox', '-d', '--channels=1', '--bits=16', 'speech.flac'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     input("Press Enter to stop recording...")
     p.terminate()
-    spoken_text = speech_to_text('speech.wav')
+    spoken_text = speech_to_text_google('speech.flac')
     output = parse(spoken_text)
-    pritn(output)
-    text_to_speech("output.wav", spoken_text, rate_change="+0%", f0mean_change="+0%")
-    subprocess.call('mplayer output.wav', shell=True)
+    print(output)
+    text_to_speech("output.wav", output, rate_change="+0%", f0mean_change="+0%")
+    subprocess.call('mplayer output.wav 1> /dev/null 2> /dev/null', shell=True)
 
 if len(sys.argv) != 2:
   infinite_parse()
