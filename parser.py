@@ -194,19 +194,19 @@ def get_time(string):
 
 def get_addresses(string):
   possibles = []
-  # '33 orientales al 200' o '33 orientales 200'
-  # TODO : remover espacion en deletreo de numeros
-  specific = re.match(r'^((?:[0-9]* )?(?:(?!al |y )[a-z]+ )+)(?:al )?((?:[0-9]+ )+)(?:$| )', string)
+  # Exact address: <name of street> [al] <altura>. For example '33 orientales al 200' or '33 orientales 200'
+  specific = re.match(r'^(?=(((?:[0-9]* )?(?:(?!al |y )[A-zÀ-ú]+ )+)(?:al )?((?:[0-9]+ )+))(?:$| ))', string)
   if specific:
-    possibles.append({ 'match': specific.group(1) + specific.group(2), 'original': [specific.group(1), specific.group(2)]})
-  # '33 orientales y 9 de julio'
-  intersection = re.match(r'^((?:[0-9]* )?(?:(?!al |y )[a-z]+ )+)(?:y)((?: [0-9]*)?(?:(?! al| y) [a-z]+)+)(?: [0-9]|$| y|)', string)
+    possibles.append({ 'match': specific.group(2) + specific.group(3), 'original': specific.group(1)})
+  # Intersection: <name of street> y <name of street> '33 orientales y 9 de julio'
+  intersection = re.match(r'^(?=(((?:[0-9]* )?(?:(?!al |y )[A-zÀ-ú]+ )+)(?:y)((?: [0-9]*)?(?:(?! al| y) [A-zÀ-ú]+)+))(?= [0-9]|$| y|))', string)
   if intersection:
-    possibles.append({ 'match': '{}y {}'.format(intersection.group(1), intersection.group(2)), 'original': [intersection.group(1), intersection.group(2)] })
+    possibles.append({ 'match': '{}y {}'.format(intersection.group(2), intersection.group(3)), 'original': intersection.group(1) })
   return possibles
 
 def get_from(string):
-  possible_from = re.findall(r'\b(?:desde |de )((?:(?!a |en |tipo |las |hasta |como |si |cuanto )\w+ )+)(?=a |en |tipo |las |hasta |como |si |cuanto |$)', string)
+  # This regex finds possible addresses delimited by some delimiters I found in the language for a departure place
+  possible_from = re.findall(r'\b(?=(?:desde |de )((?:(?!(?:manejando|caminando|a|en|tipo|las|hasta|como|si|cuanto) )\w+ )+)(?=(?:manejando|caminando|a|en|tipo|las|hasta|como|si|cuanto) |$))', string)
   potential_from = []
   for possible in possible_from:
     addresses = get_addresses(possible)
@@ -218,7 +218,9 @@ def get_from(string):
   return None if len(potential_from) == 0 else max(potential_from, key= lambda x: len(x['match']['text']))
 
 def get_to(string):
-  possible_to = re.findall(r'\b(?:hasta |a |en )((?:(?!a |en |tipo |las |desde |como |si |cuanto )\w+ )+)(?=a |en |tipo |las |desde |como |si |cuanto |$)', string)
+  # This regex finds possible addresses delimited by some delimiters I found in the language for a destination, the main difference with the other is the 'hasta' with 'desde'.
+  # Then it considers el 'estoy de' for the case 'a cuanto estoy de'
+  possible_to = re.findall(r'\b(?=(?:hasta |a |en |estoy de )((?:(?!(?:manejando|caminando|a|en|tipo|las|desde|como|si|cuanto) )\w+ )+)(?=(?:manejando|caminando|a|en|tipo|las|desde|como|si|cuanto) |$))', string)
   potential_to = []
   for possible in possible_to:
     addresses = get_addresses(possible)
@@ -231,29 +233,13 @@ def get_to(string):
 
 def get_hour(string):
   now = datetime.datetime.now()
-  times = re.search(r'\b(([0-9][0-9]?\b)(?: y\b)?( [0-9][0-9]?\b| (?:media|cuarto)\b)?(?: (?:del|de la|de el)? (noche|tarde|madrugada|mañana)\b)?)', string)
-  if times:
-    hour = int(times.group(2))
-    minutes = times.group(3)
-    if minutes == None:
-      minutes = 0
-    if minutes == ' media':
-      minutes = 30
-    if minutes == ' cuarto':
-      minutes = 15
-    minutes = int(minutes)
-    if times.group(4):
-      hour += time_of_day_to_sum[times.group(4)]
-    time = now.replace(hour=hour, minute=minutes, second=0)
-    if times.group(4) == None:
-      if now.hour >= 12 and now.hour - 12 <= hour:
-        time = time + datetime.timedelta(hours=12)
-    return time
+  string = string.replace(':', ' y ')
+  # This one finds delta of times '1 hora 2 minutos', '1 hora' or '1 hora y 2' for example
   duration = re.search(r'\b([0-9][0-9]?) horas?(?: y)?(?: ([0-9][0-9]|(?:media|cuarto)?)(?: minutos?)?)?\b', string)
   if duration:
     hours = int(duration.group(1))
     minutes = duration.group(2)
-    if minutes == None:
+    if minutes == '' or minutes == None:
       minutes = 0
     if minutes == ' media':
       minutes = 30
@@ -268,6 +254,27 @@ def get_hour(string):
   duration = re.search(r'\bmedia hora\b', string)
   if duration:
     return now + datetime.timedelta(minutes=30)
+  # This one finds exact times '2 y media a la tarde' for example, where 'y', 'media'(los minutos) and 'a la tarde' are optional
+  times = re.search(r'\b(([0-9][0-9]?\b)(?: y\b)?( [0-9][0-9]?\b| (?:media|cuarto)\b)?(?: (?:del|de la|de el)? (noche|tarde|madrugada|mañana)\b)?)', string)
+  if times:
+    hour = int(times.group(2))
+    minutes = times.group(3)
+    if minutes == '' or minutes == None:
+      minutes = 0
+    if minutes == ' media':
+      minutes = 30
+    if minutes == ' cuarto':
+      minutes = 15
+    minutes = int(minutes)
+    if times.group(4):
+      hour += time_of_day_to_sum[times.group(4)]
+    time = now.replace(hour=hour, minute=minutes, second=0)
+    if times.group(4) == None and hour <= 12:
+      if now.hour >= 12 and (now.hour - 12 <= hour or ((now.hour - 12) == hour and now.minute > minutes)):
+        time = time + datetime.timedelta(hours=12)
+      elif now.hour < 12 and (now.hour > hour or (now.hour == hour and now.minute > minutes)):
+        time = time + datetime.timedelta(hours=12)
+    return time
   moment = re.search(r'\b(mediodia|medianoche)\b', string)
   if moment:
     if moment.group(1) == 'mediodia':

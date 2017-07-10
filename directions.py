@@ -8,6 +8,7 @@ import datetime
 from usig_normalizador_amba import NormalizadorAMBA
 import os.path
 import pickle
+from unidecode import unidecode
 
 if os.path.isfile('nd.pkl'):
   with open('nd.pkl', 'rb') as f:

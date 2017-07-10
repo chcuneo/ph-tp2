@@ -6,48 +6,44 @@ import directions
 import subprocess
 from TTS_and_STT import speech_to_text_google, speech_to_text, text_to_speech
 import random
+from unidecode import unidecode
 
 def parse(spoken_text):
   arrival_time = departure_time = to = ffrom = None
 
   # Paso a minuscula
-  spoken_text = spoken_text.lower() + ' '
+  spoken_text = unidecode(spoken_text.lower()) + ' '
 
   # Remplazo literales por numeros sus digitos numericos
   spoken_text = parser.replace_all_numbers(spoken_text)
   # ir a <dire> | estar en <dire> | esquina de <dire> | a las
 
-  ffrom = parser.get_from(spoken_text)
   to = parser.get_to(spoken_text)
   if to == None:
     return 'no entendi adonde queres ir, o capaz la direccion no existe'
-  # Remove matched addreses to have a clean text to continue
-  addreses_parts = []
+  spoken_text = spoken_text.replace(to['original'],'')
+  ffrom = parser.get_from(spoken_text)
   if ffrom:
-    for part in ffrom['original']:
-      addreses_parts.append(part)
-  if to:
-    for part in to['original']:
-      addreses_parts.append(part)
+    spoken_text = spoken_text.replace(ffrom['original'],'')
 
-  for part in addreses_parts:
-    spoken_text = spoken_text.replace(part,' ')
+  # Remove matched addreses to have a clean text to continue
 
   # Get way of travel
   travel_by = 'bondi'
-  define_travel_by = re.search(r'\b(bondi|manejando|auto|caminando|patin|tren|subte|colectivo|moto|carro|pie)\b', spoken_text)
+  define_travel_by = re.search(r'\b((?:a |en )?(bondi|manejando|auto|caminando|patin|tren|subte|colectivo|moto|carro|pie))\b', spoken_text)
   if define_travel_by:
-    travel_by = define_travel_by.group(1)
+    travel_by = define_travel_by.group(2)
 
   # Get flags to know if speecher is requesting arrival time, departure time, distance, and duration
   define_arrival_time = re.search(r'\b(a que hora tengo|a que hora salgo|cuando tengo|cuando salgo)\b', spoken_text)
-  define_departure_time = re.search(r'\b(si salgo|si me voy|saliendo|yendo a las?)\b', spoken_text)
+  define_departure_time = re.search(r'\b(si salgo|si me voy|saliendo|yendo a las?)(?! de| desde)\b', spoken_text)
   get_distance = re.search(r'\b(lejos|distancia)\b', spoken_text)
   get_duration = re.search(r'\b(tardo|((en|a) )?cuanto)\b', spoken_text)
 
   hour = parser.get_hour(spoken_text)
   if hour and hour < datetime.datetime.now():
     hour = hour + datetime.timedelta(days=1)
+    print(hour)
   travel_params = {
     'by': travel_by,
   #  'departure_at': ,
@@ -71,6 +67,13 @@ def parse(spoken_text):
     return 'no encontre una ruta para ir a {} desde aca en {}'.format(to['match'], travel_by)
   if ffrom != None:
     pos.append('saliendo desde {}'.format(info['from']))
+  if define_travel_by:
+    chance = random.random()
+    if chance < 0.29:
+      s = 'yendo'
+    else:
+      s = 'si vas'
+    pos.append('{} {}'.format(s, define_travel_by.group(1)))
   if get_distance:
     pre.append('estas a {} de'.format(info['distance']))
   if get_duration and define_arrival_time == None and get_distance == None:
@@ -81,7 +84,7 @@ def parse(spoken_text):
       pre.append('te va a llevar {} llegar a'.format(info['duration']))
     else:
       pre.append('vas a estar en {} en'.format(info['duration']))
-  if define_departure_time and hour and get_distance == None:
+  if define_departure_time and define_arrival_time == None and hour and get_distance == None:
     chance = random.random()
     if chance < 0.33:
       s = 'si salis'
@@ -130,6 +133,7 @@ def infinite_parse():
     input("Press Enter to stop recording...")
     p.terminate()
     spoken_text = speech_to_text_google('speech.flac')
+    print(spoken_text)
     output = parse(spoken_text)
     print(output)
     text_to_speech("output.wav", output, rate_change="+0%", f0mean_change="+0%")
